@@ -96,7 +96,13 @@ static void virtio_gpu_ui_info(void *opaque, uint32_t idx, QemuUIInfo *info)
 
     g->req_state[idx].x = info->xoff;
     g->req_state[idx].y = info->yoff;
-    g->req_state[idx].refresh_rate = info->refresh_rate;
+    /*
+     * Display backends such as SPICE have no notion of the host refresh
+     * rate, so fall back to the configured one instead of letting the EDID
+     * default to a rate the host display may not run at.
+     */
+    g->req_state[idx].refresh_rate = info->refresh_rate ? info->refresh_rate
+                                                        : g->conf.refresh_rate;
     g->req_state[idx].width = info->width;
     g->req_state[idx].height = info->height;
     g->req_state[idx].width_mm = info->width_mm;
@@ -182,6 +188,11 @@ virtio_gpu_base_device_realize(DeviceState *qdev,
         return false;
     }
 
+    if (g->conf.refresh_rate && g->conf.refresh_rate < 1000) {
+        error_setg(errp, "refresh_rate is in mHz, e.g. 60000 for 60 Hz");
+        return false;
+    }
+
     if (virtio_gpu_virgl_enabled(g->conf)) {
         error_setg(&g->migration_blocker, "virgl is not yet migratable");
         if (migrate_add_blocker(&g->migration_blocker, errp) < 0) {
@@ -206,6 +217,7 @@ virtio_gpu_base_device_realize(DeviceState *qdev,
 
     g->req_state[0].width = g->conf.xres;
     g->req_state[0].height = g->conf.yres;
+    g->req_state[0].refresh_rate = g->conf.refresh_rate;
 
     g->hw_ops = &virtio_gpu_ops;
     for (i = 0; i < g->conf.max_outputs; i++) {
